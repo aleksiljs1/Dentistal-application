@@ -1,65 +1,43 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-
-const prisma = new PrismaClient();
+import { findUserByUsername } from "@/app/api/services/auth/login/find-user-by-username/find-user-by-username";
+import { validatePassword } from "@/app/api/services/auth/login/validate-password/validate-password";
+import { generateJwtToken } from "@/app/api/services/auth/login/generate-jwt-token/generate-jwt-token";
+import { CheckAdminUser } from "@/app/api/services/auth/login/check-admin-account/check-existing";
+import { createFirstAdmin } from "@/app/api/services/auth/login/create-first-admin/createFirstAdmin";
 
 export async function POST(request: Request) {
-  try {
-    const { email, password } = await request.json();
+  const { userName, password } = await request.json();
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+  const checkAdmin =  await new CheckAdminUser().checkUserExist();
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
-    }
+  if (!checkAdmin) {
+    await createFirstAdmin()
+  }
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
+  const user = await findUserByUsername(userName);
 
-    if (!isValidPassword) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.id,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '8h' }
-    );
-
-    // Return success response with token
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-      token,
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
+  if (!user) {
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { message: "User does not exist" },
+      { status: 400 }
     );
   }
+
+  const isMatch = await validatePassword(password, user.password_hash);
+
+  if (!isMatch) {
+    return NextResponse.json(
+      { message: "Mismatching password" },
+      { status: 400 }
+    );
+  }
+
+  const token = await generateJwtToken(user.id);
+
+  return NextResponse.json({
+    message: "You have logged in!",
+    token,
+  });
 }
 
 
