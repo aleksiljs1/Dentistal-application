@@ -1,16 +1,16 @@
 import { SignJWT } from "jose";
-import { SECRET_KEY } from "@/lib/user-store";
 import prisma from "@/lib/prisma";
 
 export async function generateJwtToken(id: number) {
-
-  const user = await prisma.users.findUnique({
+  const user = await prisma.user.findUnique({
     where: { id },
-    select: { role: true }, });
+    select: { role: true },
+  });
 
   if (!user) {
     throw new Error("User not found");
   }
+
   return new SignJWT({
     id,
     role: user.role

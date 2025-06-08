@@ -1,52 +1,84 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { jwtVerify } from 'jose';
+import { verifyAuth, decodeToken } from '@/lib/auth'
 
-// This function can be marked `async` if using `await` inside
+// Define protected routes and their required roles
+const PROTECTED_ROUTES = {
+  '/api/users': ['ADMIN'],
+  '/api/users/': ['ADMIN']  // This will match /api/users/{id} as well
+};
+
+// Define public API routes that don't require authentication
+const PUBLIC_API_ROUTES = [
+  '/api/appointments',  // POST /api/appointments should be public
+];
+
 export async function middleware(request: NextRequest) {
-  const token = request.cookies.get('token')?.value;
+  const path = request.nextUrl.pathname;
+  console.log('🔍 Middleware - Checking path:', path);
 
-  // List of paths that don't require authentication
-  const publicPaths = ['/', '/login', '/book-appointment'];
-  const isPublicPath = publicPaths.some(path => 
-    request.nextUrl.pathname.startsWith(path)
-  );
-
-  // If it's a public path, allow access
-  if (isPublicPath) {
+  // Skip middleware completely for non-API routes and static files
+  if (!path.startsWith('/api/') || 
+      path.startsWith('/api/auth') ||
+      path.startsWith('/_next') || 
+      path.startsWith('/images') ||
+      path === '/favicon.ico') {
+    console.log('✅ Non-API or public route - skipping auth check:', path);
     return NextResponse.next();
   }
 
-  // If there's no token and trying to access protected route, redirect to login
-  if (!token) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  // Allow public API routes
+  if (PUBLIC_API_ROUTES.some(route => path.startsWith(route)) && request.method === 'POST') {
+    console.log('✅ Public API route - allowing access:', path);
+    return NextResponse.next();
   }
 
   try {
-    // Verify the token
-    await jwtVerify(
-      token,
-      new TextEncoder().encode(process.env.JWT_SECRET || 'your-secret-key')
-    );
+    const authHeader = request.headers.get('authorization');
+    console.log('🔑 Auth header present?:', !!authHeader);
+    
+    const token = authHeader?.split(' ')[1];
+    console.log('🎟️ Token present?:', !!token);
+
+    if (!token) {
+      console.log('❌ No token found for API route:', path);
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    // Verify token
+    await verifyAuth(token);
+    
+    // Check role-based access for protected routes
+    const decodedToken = decodeToken(token);
+    console.log('👤 User role:', decodedToken?.role);
+    
+    // Check if this path requires specific roles
+    const requiredRoles = Object.entries(PROTECTED_ROUTES).find(([route]) => 
+      path.startsWith(route)
+    )?.[1];
+    
+    if (requiredRoles && decodedToken?.role) {
+      console.log('🔐 Required roles:', requiredRoles);
+      if (!requiredRoles.includes(decodedToken.role)) {
+        console.log('🚫 Access denied - insufficient permissions');
+        return NextResponse.json({ 
+          error: 'Access denied - insufficient permissions' 
+        }, { status: 403 });
+      }
+      console.log('✅ Role check passed');
+    }
+
+    console.log('✅ Token verified successfully');
     return NextResponse.next();
   } catch (error) {
-    // If token is invalid, clear it and redirect to login
-    const response = NextResponse.redirect(new URL('/login', request.url));
-    response.cookies.delete('token');
-    return response;
+    console.log('🔥 Error in middleware:', error);
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
 }
 
-// See "Matching Paths" below to learn more
+// Update matcher to only include API routes
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/api/:path*',  // Only match API routes
   ],
 } 

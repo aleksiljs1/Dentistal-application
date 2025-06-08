@@ -11,11 +11,13 @@ model User {
   id             Int       @id @default(autoincrement())
   email          String    @unique
   password       String
-  name           String
+  firstName      String
+  lastName       String
   role           UserRole  @default(STAFF)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   appointments   Appointment[] @relation("StaffAppointments")
+  appointmentHistories AppointmentHistory[] @relation("UserAppointmentHistories")
 }
 
 model Patient {
@@ -39,17 +41,31 @@ model Appointment {
   description    String?
   problem        String    @db.Text
   notes          String?   @db.Text
+  treatmentNotes String?   @db.Text
   followUpNeeded Boolean   @default(false)
   patient        Patient   @relation(fields: [patientId], references: [id])
   staff          User?     @relation("StaffAppointments", fields: [staffId], references: [id])
-  treatment      Treatment?
+  history        AppointmentHistory[]
+  treatments     Treatment[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
 
+model AppointmentHistory {
+  id             Int       @id @default(autoincrement())
+  appointmentId  Int
+  changedById    Int?      // User who made the change
+  action         String    // e.g., "status update", "treatment added", etc.
+  details        String?   // Description of what was changed or done
+  createdAt      DateTime  @default(now())
+  appointment    Appointment @relation(fields: [appointmentId], references: [id])
+  changedBy      User?     @relation("UserAppointmentHistories", fields: [changedById], references: [id])
+}
+
 model Treatment {
   id             Int       @id @default(autoincrement())
-  appointmentId  Int       @unique
+  appointmentId  Int
+  toothNumber    String?   // e.g., "18", "4", etc.
   name           String
   description    String    @db.Text
   cost           Decimal   @db.Decimal(10, 2)
